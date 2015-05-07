@@ -2,6 +2,7 @@
 #Use restricions: none
 #How to use: read through HPBar constants, change if needed
 class HPBar < Sprite_Base
+  VERSION = '0.0.1'
   #USE SETTINGS
   USE = {
     battle: true,         #show hp bar in battle?
