@@ -3,9 +3,9 @@ module HPBar::Concerns::Spritesetable
     klass.class_eval do
       alias original_hp_bar_initialize initialize
       def initialize
+        original_hp_bar_initialize
         create_hp_bars
         create_resource_bars
-        original_hp_bar_initialize
       end
 
       alias original_hp_bar_dispose dispose
@@ -33,11 +33,11 @@ module HPBar::Concerns::Spritesetable
       end
 
       def update_hp_bars
-        @hp_bars.each(&:update)
+        @hp_bars.each(&:update) if @hp_bars
       end
 
       def update_resource_bars
-        @resource_bars.each(&:update)
+        @resource_bars.each(&:update) if @hp_bars
       end
 
       def dispose_hp_bars

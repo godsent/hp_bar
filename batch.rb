@@ -1,4 +1,3 @@
-#gems/hp_bar/lib/hp_bar.rb
 #Author: Iren_Rin
 #Use restricions: none
 #How to use: read through HPBar constants, change if needed
@@ -46,6 +45,16 @@ class HPBar < Sprite_Base
     battler: -60,          #when target is battler
     character: -45        #when target is character
   }
+
+  X_RESOURCE_OFFSET = {
+    battler: 0,
+    character: 0
+  }
+
+  Y_RESOURCE_OFFSET = {
+     battler: 2 + 5,
+     character: 0
+  }
   #DISAPEARING SETTINGS
   TIMER = {               #how much frames will be displayed the bar?
     character: {          #on map
@@ -57,6 +66,59 @@ class HPBar < Sprite_Base
                           #set key to empty hash, or nil
   }
 
+  BACKGROUNDS = {
+    battler: {
+      use: false,                 #use background for bars?
+      sprite: 'bars_background', #background sprite name
+      y_offset: -3,              #background offset y (from bar)
+      x_offset: -3               #background offset x (from bar)
+    },
+
+    character: {
+      use: false
+    }
+  }
+
+  RESOURCE_BACKGROUNDS = {
+    battler: {
+      use: false
+    },
+
+    character: {
+      use: false
+    }
+  }
+
+  FOREGROUNDS = {
+    battler: {
+      use: false,
+    },
+
+    character: {
+      use: false
+    }
+  }
+
+  RESOURCE_FOREGROUNDS = {
+    battler: {
+      use: false
+    },
+
+    character: {
+      use: false
+    }
+  }
+
+  SPRITES = {
+    character: {
+    },
+
+    battler: {
+    }
+  }
+
+  attr_accessor :forced_opacity
+
   def initialize(viewport, target)
     @target = target
     set_variables
@@ -66,8 +128,9 @@ class HPBar < Sprite_Base
   end
 
   def update
-    super
     return unless use?
+
+    super
 
     if @updated % FREQ[target_key] == 0
       update_all
@@ -78,16 +141,36 @@ class HPBar < Sprite_Base
   end
 
   def dispose
-    self.bitmap.dispose
+    if use?
+      self.bitmap.dispose
+      dispose_foreground
+      dispose_background
+    end
+    
     super
   end
 
   private
 
+  def foreground_settings
+    FOREGROUNDS
+  end
+
+  def background_settings
+    BACKGROUNDS
+  end
+
+  def dispose_foreground
+    @foreground.dispose if with_foreground?
+  end
+
+  def dispose_background
+    @background.dispose if with_background?
+  end
+
   def set_variables
-    @y_offset = setting(:hp_bar_offset_x, Y_OFFSET[target_key])
-    @y_offset -= HEIGHT[target_key] if use_resource?
-    @x_offset = setting(:hp_bar_offset_y, X_OFFSET[target_key])
+    @y_offset = setting(:hp_bar_offset_y, Y_OFFSET[target_key])
+    @x_offset = setting(:hp_bar_offset_x, X_OFFSET[target_key])
     set_was_counter
     @updated = 0
   end
@@ -113,18 +196,47 @@ class HPBar < Sprite_Base
 
   def update_visibility
     self.visible = @target.alive? if @target.is_a?(Game_Battler)
+    update_foreground_visibility
+    update_background_visibility
+  end
+
+  def update_foreground_visibility
+    @foreground.visible = visible if with_foreground?
+  end
+
+  def update_background_visibility
+    @background.visible = visible if with_background?
   end
 
   def use?
-    @use ||= USE[use_key] && target_on_screen?
+    defined?(@use) ? @use : @use = USE[use_key] && target_on_screen?
   end
 
   def use_resource?
-    @user_resource ||= USE_RESOURCE[use_key] && target_on_screen?
+    if defined?(@use_resource)
+      @use_resource
+    else
+      @use_resource = USE_RESOURCE[use_key] && target_on_screen?
+    end
+  end
+
+  def with_foreground?
+    foreground_settings[target_key][:use]
+  end
+
+  def with_background?
+    background_settings[target_key][:use]
   end
 
   def use_key
-    SceneManager.scene.is_a?(Scene_Map) ? :map : :battle
+    case SceneManager.scene
+    when Scene_Map
+      :map
+    when Scene_Battle
+      :battle
+    else
+      :undefined
+    end
   end
 
   def target_on_screen?
@@ -145,14 +257,21 @@ class HPBar < Sprite_Base
   end
 
   def update_opacity
-    return unless max_timer
-
-    if start_disappearing?
-      update_disappearing_opacity
+    if @forced_opacity
+      self.opacity = @forced_opacity
     else
-      self.opacity = 255
-      @frames_to_disappear = max_timer
+      return unless max_timer
+
+      if start_disappearing?
+      update_disappearing_opacity
+      else
+        self.opacity = 255
+        @frames_to_disappear = max_timer
+      end
     end
+
+    update_foreground_opacity
+    update_background_opacity
   end
 
   def update_disappearing_opacity
@@ -167,12 +286,35 @@ class HPBar < Sprite_Base
     end
   end
 
+  def update_foreground_opacity
+    @foreground.opacity = opacity if with_foreground?
+  end
+
+  def update_background_opacity
+    @background.opacity = opacity if with_background?
+  end
+
   def start_disappearing?
     @hp_was == @target.hp
   end
 
   def update_bitmap
     return unless update_bitmap?
+
+    if with_sprite?
+      update_sprite_bitmap
+    else
+      update_filled_bitmap
+    end
+  end
+
+  def update_sprite_bitmap
+    self.bitmap.clear
+    rect = Rect.new(0, 0, current_width, height)
+    bitmap.stretch_blt(rect, Cache.system(sprite_name), rect)
+  end
+
+  def update_filled_bitmap
     self.bitmap.clear
 
     if height > 4
@@ -191,7 +333,7 @@ class HPBar < Sprite_Base
   end
 
   def height
-    HEIGHT[target_key]
+    original_height
   end
 
   def deep_dark_color
@@ -219,7 +361,15 @@ class HPBar < Sprite_Base
   end
 
   def current_width
-    WIDTH[target_key] * ratio
+    original_width * ratio
+  end
+
+  def original_width
+    @original_width || WIDTH[target_key]
+  end
+
+  def original_height
+    @original_height || HEIGHT[target_key]
   end
 
   def red
@@ -235,12 +385,83 @@ class HPBar < Sprite_Base
   end
 
   def create_bitmap
-    self.bitmap = Bitmap.new WIDTH[target_key], HEIGHT[target_key]
+    return unless use?
+
+    create_bar_bitmap
+    create_foreground_bitmap
+    create_background_bitmap
+  end
+
+  def create_bar_bitmap
+    if with_sprite?
+      @original_width = Cache.system(sprite_name).width
+      @original_height = Cache.system(sprite_name).height
+    end
+
+    self.bitmap = Bitmap.new(original_width, original_height)
+  end
+
+  def with_sprite?
+    !!sprite_name
+  end
+
+  def sprite_name
+    settings = SPRITES[target_key][sprite_key]
+
+    if settings.is_a?(Hash)
+      percent_sprite(settings)
+    else
+      settings
+    end
+  end
+
+  def percent_sprite(settings)
+    percent = ratio * 100
+
+    settings.each do |percents_range, name|
+      return name if percents_range.include?(percent)
+    end
+  end
+
+  def sprite_key
+    :hp
+  end
+
+  def create_foreground_bitmap
+    if with_foreground?
+      @foreground = Sprite_Base.new(viewport)
+      @foreground.bitmap = Cache.system(foreground_settings[target_key][:sprite])
+    end
+  end
+
+  def create_background_bitmap
+    if with_background?
+      @background = Sprite_Base.new(viewport)
+      @background.bitmap = Cache.system(background_settings[target_key][:sprite])
+    end
   end
 
   def update_position
     self.x, self.y = @target.screen_x + @x_offset, @target.screen_y + @y_offset
     self.z = 50
+    update_foreground_position
+    update_background_position
+  end
+
+  def update_foreground_position
+    if with_foreground?
+      @foreground.x = x + foreground_settings[target_key][:x_offset]
+      @foreground.y = y + foreground_settings[target_key][:y_offset]
+      @foreground.z = z + 1
+    end
+  end
+
+  def update_background_position
+    if with_background?
+      @background.x = x + background_settings[target_key][:x_offset]
+      @background.y = y + background_settings[target_key][:y_offset]
+      @background.z = z - 1
+    end
   end
 end
 
@@ -250,7 +471,7 @@ class HPBar::ResourceBar < HPBar
 
   def set_variables
     super
-    @y_offset = @y_offset + HEIGHT[target_key]
+    @y_offset = @y_offset + Y_RESOURCE_OFFSET[target_key]
   end
 
   def set_was_counter
@@ -265,6 +486,14 @@ class HPBar::ResourceBar < HPBar
     use_resource?
   end
 
+  def foreground_settings
+    RESOURCE_FOREGROUNDS
+  end
+
+  def background_settings
+    RESOURCE_BACKGROUNDS
+  end
+
   def update_bitmap?
     @resource_was != @target.resource || @updated == 0
   end
@@ -277,6 +506,16 @@ class HPBar::ResourceBar < HPBar
     return 0 if @target.max_resource == 0
     @target.resource.to_f / @target.max_resource
   end
+
+  def sprite_key
+    if @target.energy_user?
+      :en
+    elsif @target.tp_user?
+      :tp
+    else
+      :mp
+    end
+  end
 end
 #gems/hp_bar/lib/hp_bar/concerns.rb
 module HPBar::Concerns
@@ -288,9 +527,9 @@ module HPBar::Concerns::Spritesetable
     klass.class_eval do
       alias original_hp_bar_initialize initialize
       def initialize
+        original_hp_bar_initialize
         create_hp_bars
         create_resource_bars
-        original_hp_bar_initialize
       end
 
       alias original_hp_bar_dispose dispose
@@ -318,11 +557,11 @@ module HPBar::Concerns::Spritesetable
       end
 
       def update_hp_bars
-        @hp_bars.each(&:update)
+        @hp_bars.each(&:update) if @hp_bars
       end
 
       def update_resource_bars
-        @resource_bars.each(&:update)
+        @resource_bars.each(&:update) if @hp_bars
       end
 
       def dispose_hp_bars
@@ -379,11 +618,11 @@ class Game_BattlerBase
 
   def resource
     if is_energy_user?
-      energy
+      energy 
     elsif is_tp_user?
-      tp
-    else
-      mp
+      tp 
+    else 
+      mp 
     end
   end
 
@@ -392,7 +631,7 @@ class Game_BattlerBase
       :en
     elsif is_tp_user?
       :tp
-    else
+    else 
       :mp
     end
     Color.new(*HPBar::RESOURCE_COLORS[key])
